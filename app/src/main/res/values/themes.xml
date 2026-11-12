@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose owns all colours; this is only the pre-Compose window frame. -->
-    <style name="Theme.MyMP3" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        Compose owns every colour; this is only the window frame drawn before the first frame.
+        Dark to match the app so launching doesn't flash a light window, with light (i.e. pale)
+        status-bar icons and transparent system bars for the edge-to-edge layout Compose draws into.
+    -->
+    <style name="Theme.MyMP3" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

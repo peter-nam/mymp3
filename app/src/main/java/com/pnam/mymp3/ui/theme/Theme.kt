@@ -1,53 +1,39 @@
 package com.pnam.mymp3.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-
-private val LightColors = lightColorScheme(
-    primary = Navy800,
-    onPrimary = Color.White,
-    secondary = Navy400,
-    surface = SurfaceLight,
-    onSurface = OnSurfaceLight,
-)
 
 private val DarkColors = darkColorScheme(
-    primary = Navy400,
-    onPrimary = Navy900,
-    secondary = Navy200,
-    surface = SurfaceDark,
-    onSurface = OnSurfaceDark,
+    primary = Amber500,
+    onPrimary = Amber900,
+    primaryContainer = Amber500,
+    onPrimaryContainer = Amber900,
+    secondary = Amber300,
+    onSecondary = Amber900,
+    background = Plum950,
+    onBackground = Bone,
+    surface = Plum900,
+    onSurface = Bone,
+    surfaceContainer = Plum900,
+    surfaceContainerHigh = Plum800,
+    surfaceVariant = Plum800,
+    onSurfaceVariant = BoneMuted,
+    outline = Plum700,
+    outlineVariant = Plum800,
 )
 
 /**
- * Material You on Android 12+ — on One UI that picks up the wallpaper palette, so the player
- * matches the rest of the phone. Falls back to the brand navy below Android 12.
+ * Dark, always.
+ *
+ * The app is designed as a dark player, so it does not follow the system light/dark setting and
+ * does not opt into Material You dynamic colour — on One UI that would repaint the whole app with
+ * the wallpaper palette and throw away the amber-on-plum identity the icon sets up.
  */
 @Composable
-fun MyMp3Theme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit,
-) {
-    val context = LocalContext.current
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-
-        darkTheme -> DarkColors
-        else -> LightColors
-    }
-
+fun MyMp3Theme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = DarkColors,
         typography = AppTypography,
         content = content,
     )

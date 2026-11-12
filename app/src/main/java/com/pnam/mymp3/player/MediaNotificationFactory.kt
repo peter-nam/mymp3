@@ -25,7 +25,7 @@ object MediaNotificationFactory {
     fun commandButtons(context: Context, isPlaying: Boolean): List<CommandButton> = listOf(
         CommandButton.Builder()
             .setSessionCommand(COMMAND_SKIP_BACKWARD_10)
-            .setIconResId(R.drawable.ic_skip_backward_10)
+            .setIconResId(R.drawable.ic_skip_previous)
             .setDisplayName(context.getString(R.string.label_back_10))
             .build(),
 
@@ -37,7 +37,7 @@ object MediaNotificationFactory {
 
         CommandButton.Builder()
             .setSessionCommand(COMMAND_SKIP_FORWARD_30)
-            .setIconResId(R.drawable.ic_skip_forward_30)
+            .setIconResId(R.drawable.ic_skip_next)
             .setDisplayName(context.getString(R.string.label_forward_30))
             .build(),
     )

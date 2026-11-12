@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors ui/theme/Color.kt Plum950: the XML theme only paints the window before Compose
+         draws its first frame, and a light one flashes white on launch. -->
+    <color name="window_background">#FF0F0713</color>
+</resources>

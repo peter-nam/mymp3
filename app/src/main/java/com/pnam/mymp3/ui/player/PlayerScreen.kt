@@ -1,51 +1,65 @@
 package com.pnam.mymp3.ui.player
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.pnam.mymp3.R
 import com.pnam.mymp3.data.Track
 import com.pnam.mymp3.player.PlaybackUiState
 import com.pnam.mymp3.ui.common.rememberImageBitmap
+import com.pnam.mymp3.ui.common.rememberWaveform
 import com.pnam.mymp3.util.formatClockTime
 
-/** The now-playing screen: artwork, scrubber, and the -10s / play / +30s control row. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The now-playing screen.
+ *
+ * Deliberately sparse: the top half of the screen is empty on purpose and everything the listener
+ * needs — identity, position, transport — sits at the bottom, where it is also reachable one-handed.
+ *
+ * The scrubber is the track's own waveform instead of a plain bar: peaks decoded from the file, lit
+ * in the accent colour up to the playhead, so progress reads at a glance and tapping anywhere on it
+ * seeks. The transport row uses the standard skip glyphs; the -10s / +30s meaning they carry here is
+ * set by [com.pnam.mymp3.player.SessionCallback], which is the same code the earbuds trigger.
+ */
 @Composable
 fun PlayerScreen(
     state: PlaybackUiState,
@@ -58,195 +72,230 @@ fun PlayerScreen(
     onDismissError: () -> Unit,
 ) {
     val track = state.currentTrack ?: return
+    val peaks = rememberWaveform(track.uri)
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = track.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_arrow_back),
-                            contentDescription = stringResource(R.string.back),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onStop) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_stop),
-                            contentDescription = stringResource(R.string.stop),
-                        )
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            state.errorMessage?.let { message ->
-                ErrorBanner(message = message, onDismiss = onDismissError)
-                Spacer(Modifier.height(16.dp))
-            }
-
-            Spacer(Modifier.height(8.dp))
-            Artwork(artworkPath = track.artworkPath, size = 240.dp)
-            Spacer(Modifier.height(28.dp))
-
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = if (track.artist.isBlank()) stringResource(R.string.unknown_artist) else track.artist,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(Modifier.height(32.dp))
-            Scrubber(state = state, onSeek = onSeek)
-            Spacer(Modifier.height(28.dp))
-            Controls(
-                isPlaying = state.isPlaying,
-                onPlayPause = onPlayPause,
-                onSkipForward = onSkipForward,
-                onSkipBackward = onSkipBackward,
-            )
-        }
-    }
-}
-
-@Composable
-private fun Artwork(artworkPath: String?, size: Dp) {
-    val bitmap = rememberImageBitmap(artworkPath)
-    Box(
+    Column(
         modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center,
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .padding(horizontal = 24.dp),
     ) {
-        val image = bitmap
-        if (image != null) {
-            Image(
-                bitmap = image,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        } else {
+        TopBar(onBack = onBack, onStop = onStop)
+
+        // All the whitespace, kept where nothing needs to be.
+        Spacer(Modifier.weight(1f))
+
+        state.errorMessage?.let { message ->
+            ErrorBanner(message = message, onDismiss = onDismissError)
+            Spacer(Modifier.height(16.dp))
+        }
+
+        Artwork(track)
+        TitleAndArtist(track)
+
+        Spacer(Modifier.height(28.dp))
+        WaveformScrubber(
+            peaks = peaks,
+            fraction = state.progress,
+            onSeek = { fraction -> onSeek((fraction * state.durationMs).toLong()) },
+            enabled = state.durationMs > 0L,
+        )
+        Spacer(Modifier.height(10.dp))
+        TimesRow(state)
+        Spacer(Modifier.height(24.dp))
+        TransportRow(
+            isPlaying = state.isPlaying,
+            onPlayPause = onPlayPause,
+            onSkipForward = onSkipForward,
+            onSkipBackward = onSkipBackward,
+        )
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun TopBar(onBack: () -> Unit, onStop: () -> Unit) {
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) {
             Icon(
-                painter = painterResource(R.drawable.ic_music_note),
-                contentDescription = null,
-                modifier = Modifier.size(size / 3),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                painter = painterResource(R.drawable.ic_arrow_back),
+                contentDescription = stringResource(R.string.back),
+                tint = tint,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onStop) {
+            Icon(
+                painter = painterResource(R.drawable.ic_stop),
+                contentDescription = stringResource(R.string.stop),
+                tint = tint,
             )
         }
     }
 }
 
+/** Shown only when the file carries artwork — an untagged mp3 gets text, not a grey placeholder. */
 @Composable
-private fun Scrubber(state: PlaybackUiState, onSeek: (Long) -> Unit) {
-    val durationMs = state.durationMs
+private fun Artwork(track: Track) {
+    val path = track.artworkPath ?: return
+    val bitmap = rememberImageBitmap(path) ?: return
+    Image(
+        bitmap = bitmap,
+        contentDescription = null,
+        modifier = Modifier
+            .size(96.dp)
+            .clip(RoundedCornerShape(16.dp)),
+        contentScale = ContentScale.Crop,
+    )
+    Spacer(Modifier.height(20.dp))
+}
+
+@Composable
+private fun TitleAndArtist(track: Track) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Slider(
-            value = state.progress,
-            onValueChange = { fraction ->
-                if (durationMs > 0L) onSeek((fraction * durationMs).toLong())
-            },
-            enabled = durationMs > 0L,
-            modifier = Modifier.fillMaxWidth(),
+        Text(
+            text = track.title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = formatClockTime(state.positionMs),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = formatClockTime(durationMs),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun Controls(
-    isPlaying: Boolean,
-    onPlayPause: () -> Unit,
-    onSkipForward: () -> Unit,
-    onSkipBackward: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SeekButton(
-            label = stringResource(R.string.label_back_10),
-            description = stringResource(R.string.skip_back_10),
-            onClick = onSkipBackward,
-        )
-
-        FloatingActionButton(
-            onClick = onPlayPause,
-            shape = CircleShape,
-            modifier = Modifier.size(76.dp),
-        ) {
-            Icon(
-                painter = painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
-                contentDescription = stringResource(if (isPlaying) R.string.pause else R.string.play),
-            )
-        }
-
-        SeekButton(
-            label = stringResource(R.string.label_forward_30),
-            description = stringResource(R.string.skip_forward_30),
-            onClick = onSkipForward,
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = if (track.artist.isBlank()) stringResource(R.string.unknown_artist) else track.artist,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
 /**
- * A round tonal button labelled with the distance it seeks.
+ * The waveform, doubling as the progress bar.
  *
- * Labelling beats a "skip" glyph here: the same gesture on the earbuds means the same thing, and
- * the number is the whole point of the button.
+ * Every bar is drawn in the muted colour first and the played slice is drawn again clipped to the
+ * exact position, so the bar under the playhead fills gradually instead of snapping on whole bars.
  */
 @Composable
-private fun SeekButton(label: String, description: String, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        shape = CircleShape,
-        colors = ButtonDefaults.filledTonalButtonColors(),
-        contentPadding = PaddingValues(0.dp),
-        modifier = Modifier.size(64.dp),
+private fun WaveformScrubber(
+    peaks: FloatArray,
+    fraction: Float,
+    onSeek: (Float) -> Unit,
+    enabled: Boolean,
+) {
+    val playedColor = MaterialTheme.colorScheme.primary
+    val remainingColor = MaterialTheme.colorScheme.outlineVariant
+
+    val clickable = if (enabled) {
+        Modifier.pointerInput(peaks.size) {
+            detectTapGestures { offset -> onSeek((offset.x / size.width).coerceIn(0f, 1f)) }
+        }
+    } else {
+        Modifier
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .then(clickable),
     ) {
-        Text(text = label, style = MaterialTheme.typography.labelMedium)
+        if (peaks.isEmpty()) return@Canvas
+        val step = size.width / peaks.size
+        val barWidth = (step * 0.6f).coerceAtLeast(1f)
+        val corner = CornerRadius(barWidth / 2f)
+
+        bars(peaks, step, barWidth, corner, remainingColor)
+        clipRect(right = size.width * fraction.coerceIn(0f, 1f)) {
+            bars(peaks, step, barWidth, corner, playedColor)
+        }
+    }
+}
+
+private fun DrawScope.bars(
+    peaks: FloatArray,
+    step: Float,
+    barWidth: Float,
+    corner: CornerRadius,
+    color: Color,
+) {
+    val shortestBar = 2.dp.toPx()
+    peaks.forEachIndexed { index, peak ->
+        val barHeight = (peak * size.height).coerceAtLeast(shortestBar)
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(index * step, (size.height - barHeight) / 2f),
+            size = Size(barWidth, barHeight),
+            cornerRadius = corner,
+        )
+    }
+}
+
+@Composable
+private fun TimesRow(state: PlaybackUiState) {
+    val style = MaterialTheme.typography.labelMedium
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(formatClockTime(state.positionMs), style = style, color = tint)
+        Text(formatClockTime(state.durationMs), style = style, color = tint)
+    }
+}
+
+/**
+ * Standard glyphs, sized by role: the two skip buttons are quiet, play/pause is the only filled,
+ * accent-coloured control on the screen.
+ */
+@Composable
+private fun TransportRow(
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+    onSkipForward: () -> Unit,
+    onSkipBackward: () -> Unit,
+) {
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onSkipBackward, modifier = Modifier.size(52.dp)) {
+            Icon(
+                painter = painterResource(R.drawable.ic_skip_previous),
+                contentDescription = stringResource(R.string.skip_back_10),
+                modifier = Modifier.size(26.dp),
+                tint = onSurface,
+            )
+        }
+
+        IconButton(
+            onClick = onPlayPause,
+            modifier = Modifier
+                .size(76.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape),
+        ) {
+            Icon(
+                painter = painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
+                contentDescription = stringResource(if (isPlaying) R.string.pause else R.string.play),
+                modifier = Modifier.size(34.dp),
+                tint = MaterialTheme.colorScheme.onPrimary,
+            )
+        }
+
+        IconButton(onClick = onSkipForward, modifier = Modifier.size(52.dp)) {
+            Icon(
+                painter = painterResource(R.drawable.ic_skip_next),
+                contentDescription = stringResource(R.string.skip_forward_30),
+                modifier = Modifier.size(26.dp),
+                tint = onSurface,
+            )
+        }
     }
 }
 
@@ -255,6 +304,10 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
     ) {
         Row(
             modifier = Modifier

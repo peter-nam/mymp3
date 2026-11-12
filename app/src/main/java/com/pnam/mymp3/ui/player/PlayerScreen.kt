@@ -1,5 +1,12 @@
 package com.pnam.mymp3.ui.player
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +43,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -44,22 +53,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pnam.mymp3.R
 import com.pnam.mymp3.data.Track
+import com.pnam.mymp3.data.Waveform
 import com.pnam.mymp3.player.PlaybackUiState
 import com.pnam.mymp3.ui.common.rememberImageBitmap
 import com.pnam.mymp3.ui.common.rememberWaveform
 import com.pnam.mymp3.util.formatClockTime
+import kotlin.math.roundToInt
 
-/**
- * The now-playing screen.
- *
- * Deliberately sparse: the top half of the screen is empty on purpose and everything the listener
- * needs — identity, position, transport — sits at the bottom, where it is also reachable one-handed.
- *
- * The scrubber is the track's own waveform instead of a plain bar: peaks decoded from the file, lit
- * in the accent colour up to the playhead, so progress reads at a glance and tapping anywhere on it
- * seeks. The transport row uses the standard skip glyphs; the -10s / +30s meaning they carry here is
- * set by [com.pnam.mymp3.player.SessionCallback], which is the same code the earbuds trigger.
- */
+/** The now-playing screen. */
 @Composable
 fun PlayerScreen(
     state: PlaybackUiState,
@@ -72,7 +73,7 @@ fun PlayerScreen(
     onDismissError: () -> Unit,
 ) {
     val track = state.currentTrack ?: return
-    val peaks = rememberWaveform(track.uri)
+    val waveform = rememberWaveform(track.uri)
 
     Column(
         modifier = Modifier
@@ -96,10 +97,11 @@ fun PlayerScreen(
 
         Spacer(Modifier.height(28.dp))
         WaveformScrubber(
-            peaks = peaks,
+            waveform = waveform,
             fraction = state.progress,
+            isPlaying = state.isPlaying,
+            canSeek = state.durationMs > 0L,
             onSeek = { fraction -> onSeek((fraction * state.durationMs).toLong()) },
-            enabled = state.durationMs > 0L,
         )
         Spacer(Modifier.height(10.dp))
         TimesRow(state)
@@ -177,21 +179,53 @@ private fun TitleAndArtist(track: Track) {
 /**
  * The waveform, doubling as the progress bar.
  *
- * Every bar is drawn in the muted colour first and the played slice is drawn again clipped to the
- * exact position, so the bar under the playhead fills gradually instead of snapping on whole bars.
+ * It breathes on the beat: every bar grows by [PulseAmount] on each beat the track's estimated tempo
+ * puts at that moment, with a fast attack and a slower fall back down, so the shape moves with the
+ * music instead of sitting still. The pulse stops when playback stops.
+ *
+ * The colour drifts slowly around [EtherealRamp] — violet through sky, mint, the brand amber and
+ * rose — offset along the bar axis so the gradient runs across the waveform rather than flashing
+ * as one flat colour. The part already heard is drawn at full strength and the part still to come
+ * at [UnplayedAlpha], so progress stays readable while the whole thing shifts.
  */
 @Composable
 private fun WaveformScrubber(
-    peaks: FloatArray,
+    waveform: Waveform,
     fraction: Float,
+    isPlaying: Boolean,
+    canSeek: Boolean,
     onSeek: (Float) -> Unit,
-    enabled: Boolean,
 ) {
-    val playedColor = MaterialTheme.colorScheme.primary
-    val remainingColor = MaterialTheme.colorScheme.outlineVariant
+    val bars = waveform.bars
+    if (bars.isEmpty()) return
 
-    val clickable = if (enabled) {
-        Modifier.pointerInput(peaks.size) {
+    val beatMs = (60_000f / waveform.bpm).roundToInt().coerceIn(MinBeatMs, MaxBeatMs)
+    val animations = rememberInfiniteTransition(label = "waveform-motion")
+
+    // One transition drives both animations, so the scrubber is redrawn from a single frame clock.
+    val beat by animations.animateFloat(
+        initialValue = 0f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = beatMs
+                0f at 0 using LinearEasing
+                1f at (beatMs * 0.14f).roundToInt() using LinearEasing // quick attack
+                0f at beatMs using LinearEasing                        // slow release
+            },
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "beat",
+    )
+    val hue by animations.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(HueCycleMs, easing = LinearEasing), RepeatMode.Restart),
+        label = "hue",
+    )
+
+    val clickable = if (canSeek) {
+        Modifier.pointerInput(bars.size) {
             detectTapGestures { offset -> onSeek((offset.x / size.width).coerceIn(0f, 1f)) }
         }
     } else {
@@ -204,35 +238,75 @@ private fun WaveformScrubber(
             .height(56.dp)
             .then(clickable),
     ) {
-        if (peaks.isEmpty()) return@Canvas
-        val step = size.width / peaks.size
-        val barWidth = (step * 0.6f).coerceAtLeast(1f)
+        val step = size.width / bars.size
+        val barWidth = (step * 0.55f).coerceAtLeast(1f)
         val corner = CornerRadius(barWidth / 2f)
+        val tallestBar = size.height * 0.92f // headroom, so a beat peak still fits
+        val pulse = if (isPlaying) beat else 0f
 
-        bars(peaks, step, barWidth, corner, remainingColor)
+        // Everything still to come, dimmed, so the shape reads past the playhead.
+        bars.forEachIndexed { index, amplitude ->
+            val height = (amplitude * tallestBar * (1f + PulseAmount * pulse)).coerceAtMost(size.height)
+            drawRoundRect(
+                color = rampColour(hue, index, bars.size).copy(alpha = UnplayedAlpha),
+                topLeft = Offset(index * step, (size.height - height) / 2f),
+                size = Size(barWidth, height),
+                cornerRadius = corner,
+            )
+        }
+
+        // The part already heard, drawn again at full strength and clipped to the exact position so
+        // the bar under the playhead fills gradually instead of snapping to whole bars.
         clipRect(right = size.width * fraction.coerceIn(0f, 1f)) {
-            bars(peaks, step, barWidth, corner, playedColor)
+            bars.forEachIndexed { index, amplitude ->
+                val height = (amplitude * tallestBar * (1f + PulseAmount * pulse)).coerceAtMost(size.height)
+                drawRoundRect(
+                    color = rampColour(hue, index, bars.size).copy(alpha = 0.82f + (1f - 0.82f) * pulse),
+                    topLeft = Offset(index * step, (size.height - height) / 2f),
+                    size = Size(barWidth, height),
+                    cornerRadius = corner,
+                )
+            }
         }
     }
 }
 
-private fun DrawScope.bars(
-    peaks: FloatArray,
-    step: Float,
-    barWidth: Float,
-    corner: CornerRadius,
-    color: Color,
-) {
-    val shortestBar = 2.dp.toPx()
-    peaks.forEachIndexed { index, peak ->
-        val barHeight = (peak * size.height).coerceAtLeast(shortestBar)
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(index * step, (size.height - barHeight) / 2f),
-            size = Size(barWidth, barHeight),
-            cornerRadius = corner,
-        )
+private const val PulseAmount = 0.06f
+private const val UnplayedAlpha = 0.22f
+private const val HueCycleMs = 16_000
+private const val MinBeatMs = 300
+private const val MaxBeatMs = 1_000
+
+/** Violet → sky → mint → the brand amber → rose, and back to violet. */
+private val EtherealRamp: List<Color> = buildRamp()
+
+/**
+ * The closed gradient sampled once at class load. Sampling it up front means a frame picks a colour
+ * per bar with an index instead of building a 240-element array of lerps 60 times a second.
+ */
+private fun buildRamp(): List<Color> {
+    val stops = listOf(
+        Color(0xFF6D5BFF), // violet
+        Color(0xFF3FC1F0), // sky
+        Color(0xFF39E6B4), // mint
+        Color(0xFFFFC15C), // the brand amber
+        Color(0xFFFF6FA0), // rose
+    )
+    val perStop = 24
+    return buildList(stops.size * perStop) {
+        stops.forEachIndexed { index, from ->
+            val to = stops[(index + 1) % stops.size]
+            for (step in 0 until perStop) {
+                add(lerp(from, to, step.toFloat() / perStop))
+            }
+        }
     }
+}
+
+/** The ramp colour for [index] of [count] bars, at [phase] of the drift cycle. */
+private fun rampColour(phase: Float, index: Int, count: Int): Color {
+    val slots = EtherealRamp.size
+    return EtherealRamp[(((phase + index.toFloat() / count) % 1f) * slots).toInt() % slots]
 }
 
 @Composable

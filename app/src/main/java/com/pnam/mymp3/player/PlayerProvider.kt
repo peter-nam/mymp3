@@ -91,7 +91,7 @@ class PlayerProvider(
         }
 
         // Warms the waveform cache for the player screen without gating playback on a decode.
-        scope.launch { WaveformExtractor.peaks(appContext, uri) }
+        scope.launch { WaveformExtractor.load(appContext, uri) }
 
         scope.launch {
             // Tags are decoration, and read() always answers; a genuinely unreadable file is

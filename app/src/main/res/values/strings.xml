@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MyMP3</string>
+    <string name="open_in_mymp3">Play in MyMP3</string>
+
+    <!-- Player -->
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="skip_forward_30">Skip forward 30 seconds</string>
+    <string name="skip_back_10">Rewind 10 seconds</string>
+    <string name="label_back_10">-10s</string>
+    <string name="label_forward_30">+30s</string>
+    <string name="back">Back</string>
+    <string name="unknown_artist">Unknown artist</string>
+    <string name="not_playing">Nothing playing</string>
+    <string name="buffering">Buffering…</string>
+
+    <!-- Library -->
+    <string name="recent_files">Recent files</string>
+    <string name="open_file">Open file</string>
+    <string name="remove_from_recent">Remove from recent files</string>
+    <string name="empty_library_title">No audio yet</string>
+    <string name="empty_library_body">Share an audio file to MyMP3, or tap Open file to pick one.</string>
+    <string name="resume_at">Resume %1$s</string>
+
+    <!-- Errors -->
+    <string name="error_file_unavailable">This file is no longer available. Re-share or re-open it.</string>
+    <string name="error_playback">Playback error: %1$s</string>
+    <string name="dismiss">Dismiss</string>
+</resources>

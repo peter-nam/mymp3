@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ backup rules. Cache (artwork thumbnails) is excluded. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include
+            domain="file"
+            path="." />
+        <exclude
+            domain="file"
+            path="artwork" />
+    </cloud-backup>
+    <device-transfer>
+        <include
+            domain="file"
+            path="." />
+        <exclude
+            domain="file"
+            path="artwork" />
+    </device-transfer>
+</data-extraction-rules>

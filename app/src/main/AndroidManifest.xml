@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ExoPlayer reads remote/streamed sources; also used for content URIs. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Required from Android 14 for a mediaPlayback foreground service. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- Required from Android 13 to show the playback notification at all. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Only for reading audio on pre-33 devices when a file:// URI is handed to us. -->
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_AUDIO"
+        android:maxSdkVersion="32" />
+
+    <application
+        android:name=".MyMp3Application"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MyMP3">
+
+        <!--
+            singleTask so that "open with" / "share to" while music is already playing
+            reuses the running task instead of restarting the app and dropping the session.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density|fontScale|layoutDirection|locale"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- "Open with…" from Files, email attachments, downloads, browsers. -->
+            <intent-filter android:label="@string/open_in_mymp3">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="content"
+                    android:mimeType="audio/*" />
+                <data
+                    android:scheme="file"
+                    android:mimeType="audio/*" />
+                <data
+                    android:scheme="content"
+                    android:mimeType="application/ogg" />
+                <data
+                    android:scheme="file"
+                    android:mimeType="application/ogg" />
+            </intent-filter>
+
+            <!-- The Share sheet: "Share ▸ MyMP3". -->
+            <intent-filter android:label="@string/open_in_mymp3">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="application/ogg" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            One MediaSessionService owns the only ExoPlayer instance. The in-app UI,
+            the notification, the lock screen and Bluetooth AVRCP all drive this session.
+        -->
+        <service
+            android:name=".player.AudioService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+    </application>
+
+</manifest>

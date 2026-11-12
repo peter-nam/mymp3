@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Slight, subtle drop shadow for line art depth (dark tint, low opacity) -->
+    <group
+        android:translateX="0"
+        android:translateY="0.75">
+        
+        <!-- Drop Shadow Copy: Vinyl Ring -->
+        <path
+            android:pathData="M 40.5,33.5 A 20.5,20.5 0 1 0 65,47"
+            android:strokeColor="#240D30"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round"
+            android:strokeAlpha="0.12" />
+
+        <!-- Drop Shadow Copy: Inner Record Ribs -->
+        <path
+            android:pathData="M 44.5,37.5 A 16.5,16.5 0 0 0 35,59"
+            android:strokeColor="#240D30"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round"
+            android:strokeAlpha="0.10" />
+        <path
+            android:pathData="M 41,59 A 12,12 0 0 0 46,65"
+            android:strokeColor="#240D30"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeAlpha="0.08" />
+
+        <!-- Drop Shadow Copy: Play Circle & Triangle -->
+        <path
+            android:pathData="M 54,46.5 A 7.5,7.5 0 1 1 46.5,54"
+            android:strokeColor="#240D30"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeAlpha="0.12" />
+        <path
+            android:pathData="M 52.5,51.5 L 56.5,54 L 52.5,56.5 Z"
+            android:fillColor="#240D30"
+            android:fillAlpha="0.12" />
+
+        <!-- Drop Shadow Copy: Soundwave -->
+        <path
+            android:pathData="M 65.2,54 C 67.5,53.5 68,45.5 69,45.5 C 70.2,45.5 70.8,62.5 72,62.5 C 73.2,62.5 74.5,49.5 75.8,49.5 C 77,49.5 77.8,55.5 79.2,54 C 81,52 81.5,54 84,54"
+            android:strokeColor="#240D30"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:strokeAlpha="0.12" />
+    </group>
+
+    <!-- ACTIVE LAYER: CRISP WHITE LINE-ART -->
+    <group>
+        <!-- Distinct White Outer Play/Vinyl Ring -->
+        <path
+            android:pathData="M 40.5,33.5 A 20.5,20.5 0 1 0 65,47"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round" />
+
+        <!-- Vinyl Grooves/Aesthetic Fine Ribs -->
+        <path
+            android:pathData="M 44.5,37.5 A 16.5,16.5 0 0 0 35,59"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M 41,59 A 12,12 0 0 0 46,65"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:strokeLineCap="round" />
+
+        <!-- Inner 'Play Capsule' Circle -->
+        <path
+            android:pathData="M 54,46.5 A 7.5,7.5 0 1 1 46.5,54"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3"
+            android:strokeLineCap="round" />
+
+        <!-- Minimalist White Play triangle, slightly offset for optical centering -->
+        <path
+            android:pathData="M 52.5,51.5 L 56.5,54 L 52.5,56.5 Z"
+            android:fillColor="#FFFFFF" />
+
+        <!-- Dynamic Soundwave (flowing from Vinyl back edge) -->
+        <path
+            android:pathData="M 65.2,54 C 67.5,53.5 68,45.5 69,45.5 C 70.2,45.5 70.8,62.5 72,62.5 C 73.2,62.5 74.5,49.5 75.8,49.5 C 77,49.5 77.8,55.5 79.2,54 C 81,52 81.5,54 84,54"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3.0"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+
+        <!-- Accent Active Human-Touch Dot (Warm Pastel Orange) -->
+        <path
+            android:pathData="M 72,39.5 A 2,2 0 1 1 68,39.5 A 2,2 0 1 1 72,39.5 Z"
+            android:fillColor="#FFFF9E00" />
+    </group>
+</vector>

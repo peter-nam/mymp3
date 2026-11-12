@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Devices running Android 8.0–10. Cache (artwork thumbnails) is never backed up. -->
+<full-backup-content>
+    <include
+        domain="file"
+        path="." />
+    <exclude
+        domain="file"
+        path="artwork" />
+</full-backup-content>

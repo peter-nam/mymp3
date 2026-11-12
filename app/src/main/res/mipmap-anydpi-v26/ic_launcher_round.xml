@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background" />
+    <!-- Background layer with the canvas & abstract color gradients -->
+    <background android:drawable="@drawable/ic_launcher_background" />
+    
+    <!-- Foreground layer with the prominent white artwork and dot -->
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    
+    <!-- Monochromatic support for themed app icons on modern Android (13+) -->
     <monochrome android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>

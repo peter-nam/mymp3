@@ -19,6 +19,7 @@ import com.pnam.mymp3.R
 import com.pnam.mymp3.data.AudioMetadataReader
 import com.pnam.mymp3.data.RecentTracksStore
 import com.pnam.mymp3.data.Track
+import com.pnam.mymp3.data.WaveformExtractor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -88,6 +89,9 @@ class PlayerProvider(
         runCatching {
             ContextCompat.startForegroundService(appContext, Intent(appContext, AudioService::class.java))
         }
+
+        // Warms the waveform cache for the player screen without gating playback on a decode.
+        scope.launch { WaveformExtractor.peaks(appContext, uri) }
 
         scope.launch {
             // Tags are decoration, and read() always answers; a genuinely unreadable file is

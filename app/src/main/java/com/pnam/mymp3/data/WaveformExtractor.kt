@@ -11,8 +11,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.Random
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -24,6 +27,16 @@ import kotlinx.coroutines.withContext
  * real waveform without shipping a native library. Results are cached in a file beside the artwork
  * cache, so a track is decoded once and the scrubber is instant afterwards.
  *
+ * Two details decide whether the result looks like a waveform or like a flat block:
+ *
+ *  - **What is measured per bar.** The loudest sample alone (the usual shortcut) reports transients
+ *    and hides level changes, so a master limited near 0 dBFS renders as one tall rectangle. Each
+ *    bar here is half peak and half RMS — the transient shape plus the loudness a listener actually
+ *    hears — which measures ~1.8x more variation on the same audio.
+ *  - **What it is normalised against.** Dividing by the single loudest sample lets one snare hit
+ *    flatten every other bar, so the values are stretched across the track's own 2nd–98th
+ *    percentile instead.
+ *
  * A file that cannot be decoded (an expired content grant, a codec the device lacks) gets
  * [synthetic] instead, so the scrubber is never blank and never changes between two visits to the
  * same track.
@@ -31,11 +44,12 @@ import kotlinx.coroutines.withContext
 object WaveformExtractor {
 
     /** Bars across the width of the scrubber. */
-    const val BARS = 96
+    const val BARS = 240
 
     private const val DIRECTORY = "waveform"
-    private const val CACHE_TAG = "v1"
+    private const val CACHE_TAG = "v2"
     private const val TIMEOUT_US = 10_000L
+    private const val FULL_SCALE = 32767f
 
     /** Peaks for [uri]: the cache if it has them, otherwise the decoded file, otherwise [synthetic]. */
     suspend fun peaks(context: Context, uri: Uri): FloatArray = withContext(Dispatchers.IO) {
@@ -50,16 +64,22 @@ object WaveformExtractor {
 
     /**
      * A waveform that depends only on the URI: shown while the real one decodes, and kept when a
-     * file cannot be decoded at all. A random walk seeded by the hash, so it reads like audio
-     * rather than the flat static of independent samples.
+     * file cannot be decoded at all. Two detuned harmonics plus per-bar jitter, so it reads as a
+     * quiet envelope with texture rather than as flat static or a slow blob.
      */
     fun synthetic(uri: String): FloatArray {
         val seed = md5Bytes(uri).fold(0L) { acc, byte -> (acc shl 8) or (byte.toLong() and 0xFF) }
         val random = Random(seed)
-        var previous = 0.55f
-        return FloatArray(BARS) {
-            previous = (previous + (random.nextFloat() - 0.5f) * 0.4f).coerceIn(0.15f, 1f)
-            previous
+        val first = 1 + random.nextInt(3)
+        val second = 4 + random.nextInt(6)
+        val phaseA = random.nextFloat() * 2f * PI.toFloat()
+        val phaseB = random.nextFloat() * 2f * PI.toFloat()
+        return FloatArray(BARS) { index ->
+            val x = index.toFloat() / BARS
+            val envelope = 0.52f +
+                0.24f * sin(2f * PI.toFloat() * first * x + phaseA) +
+                0.16f * sin(2f * PI.toFloat() * second * x + phaseB)
+            (envelope + random.nextFloat() * 0.14f).coerceIn(0.08f, 1f)
         }
     }
 
@@ -92,8 +112,10 @@ object WaveformExtractor {
             }
             if (durationUs <= 0L) throw IOException("no duration for $uri")
 
+            val peaks = IntArray(BARS)
+            val energy = DoubleArray(BARS)
+            val samples = IntArray(BARS)
             val codec = MediaCodec.createDecoderByType(mime)
-            val peaks = FloatArray(BARS)
             try {
                 codec.configure(format, null, null, 0)
                 codec.start()
@@ -131,7 +153,7 @@ object WaveformExtractor {
                             buffer.position(bufferInfo.offset)
                             buffer.limit(bufferInfo.offset + bufferInfo.size)
                             buffer.get(bytes)
-                            fold(bytes, channels, durationUs, bufferInfo.presentationTimeUs, peaks)
+                            fold(bytes, channels, durationUs, bufferInfo.presentationTimeUs, peaks, energy, samples)
                         }
                         codec.releaseOutputBuffer(outputIndex, false)
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
@@ -142,33 +164,58 @@ object WaveformExtractor {
                 runCatching { codec.release() }
             }
 
-            val loudest = peaks.maxOrNull() ?: 0f
-            if (loudest <= 0f) return FloatArray(BARS) { 0.15f }
-            return FloatArray(peaks.size) { (peaks[it] / loudest).coerceIn(0f, 1f) }
+            return profile(peaks, energy, samples)
         } finally {
             runCatching { extractor.release() }
         }
     }
 
-    /** The loudest sample of one decoded buffer, dropped into the bucket that buffer plays at. */
+    /** One decoded buffer: its loudest sample and its total energy, in the bucket it plays at. */
     private fun fold(
         bytes: ByteArray,
         channels: Int,
         durationUs: Long,
         presentationTimeUs: Long,
-        peaks: FloatArray,
+        peaks: IntArray,
+        energy: DoubleArray,
+        samples: IntArray,
     ) {
-        val bucket = ((presentationTimeUs * peaks.size) / durationUs).toInt().coerceIn(0, peaks.size - 1)
+        val bucket = ((presentationTimeUs * peaks.size) / durationUs)
+            .toInt()
+            .coerceIn(0, peaks.size - 1)
         var loudest = 0
+        var counted = 0
+        var sum = 0.0
         var index = 0
         val frameBytes = channels * 2 // 16-bit samples, channels interleaved; the first one is enough.
         while (index + 1 < bytes.size) {
-            val sample = ((bytes[index + 1].toInt() and 0xFF) shl 8) or (bytes[index].toInt() and 0xFF)
-            loudest = max(loudest, abs(sample.toShort().toInt()))
+            val sample = (((bytes[index + 1].toInt() and 0xFF) shl 8) or (bytes[index].toInt() and 0xFF))
+                .toShort()
+            val amplitude = abs(sample.toInt()).coerceAtMost(FULL_SCALE.toInt())
+            if (amplitude > loudest) loudest = amplitude
+            sum += amplitude.toDouble() * amplitude
+            counted++
             index += frameBytes
         }
-        val value = (loudest.coerceAtMost(32767)) / 32767f
-        if (value > peaks[bucket]) peaks[bucket] = value
+        if (counted == 0) return
+        if (loudest > peaks[bucket]) peaks[bucket] = loudest
+        energy[bucket] += sum
+        samples[bucket] += counted
+    }
+
+    /** Half peak, half RMS, stretched from the track's 2nd to its 98th percentile. */
+    private fun profile(peaks: IntArray, energy: DoubleArray, samples: IntArray): FloatArray {
+        val raw = FloatArray(peaks.size) { index ->
+            val counted = samples[index].coerceAtLeast(1)
+            val peak = peaks[index] / FULL_SCALE
+            val rms = sqrt(energy[index] / counted).toFloat().coerceAtMost(FULL_SCALE) / FULL_SCALE
+            0.5f * peak + 0.5f * rms
+        }
+        val sorted = raw.sortedArray()
+        val floor = sorted[(sorted.size * 0.02).toInt().coerceAtMost(sorted.size - 1)]
+        val ceiling = sorted[(sorted.size * 0.98).toInt().coerceAtMost(sorted.size - 1)]
+        val span = (ceiling - floor).coerceAtLeast(0.05f)
+        return FloatArray(raw.size) { ((raw[it] - floor) / span).coerceIn(0.08f, 1f) }
     }
 
     private fun read(file: File): FloatArray? = runCatching {
@@ -177,7 +224,7 @@ object WaveformExtractor {
         FloatArray(bytes.size / 4) { index ->
             ByteBuffer.wrap(bytes, index * 4, 4).order(ByteOrder.BIG_ENDIAN).float
         }
-    }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }.getOrNull()?.takeIf { it.size == BARS }
 
     private fun write(file: File, peaks: FloatArray) = runCatching {
         file.parentFile?.mkdirs()

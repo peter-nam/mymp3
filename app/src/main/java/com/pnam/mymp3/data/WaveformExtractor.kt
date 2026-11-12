@@ -13,6 +13,7 @@ import java.security.MessageDigest
 import java.util.Random
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -42,6 +43,10 @@ data class Waveform(val bars: FloatArray, val bpm: Float)
  *  - **What it is normalised against.** Dividing by the single loudest sample lets one snare hit
  *    flatten every other bar, so the values are stretched across the track's own 2nd–98th
  *    percentile instead.
+ *  - **How the finished profile is shaped.** Each bar covers 0.68 s of audio, so neighbouring bars
+ *    measure genuinely different moments and the raw profile steps between them. A Gaussian pass
+ *    ([SMOOTH_SIGMA_BARS]) turns those steps into peaks and valleys without touching the spread.
+ *    See [smooth].
  *
  * A file that cannot be decoded (an expired content grant, a codec the device lacks) gets
  * [synthetic] instead, so the scrubber is never blank and never changes between two visits to the
@@ -56,13 +61,25 @@ object WaveformExtractor {
     const val FALLBACK_BPM = 120f
 
     private const val DIRECTORY = "waveform"
-    private const val CACHE_TAG = "v3"
+    private const val CACHE_TAG = "v4"
     private const val TIMEOUT_US = 10_000L
     private const val FULL_SCALE = 32767f
     private const val FULL_SCALE_INT = 32767
 
     /** PCM samples per loudness frame, giving ~86 frames per second at 44.1 kHz. */
     private const val FRAME_SAMPLES = 512
+
+    /**
+     * Smoothing radius for the finished profile, in bars.
+     *
+     * A bar is a 0.68 s slice of the track, so two neighbouring bars measure genuinely different
+     * moments and the raw profile steps by ~0.12 between them — which is what makes the drawn
+     * waveform read as a row of blocks rather than as a shape. A Gaussian pass smooths the steps
+     * away without flattening the track: on the reference file the neighbour-to-neighbour step
+     * drops from 0.121 to 0.028 while the spread is untouched (stdev 0.193 → 0.203), so the
+     * dynamics the previous fix added are all still there.
+     */
+    private const val SMOOTH_SIGMA_BARS = 2f
 
     private val json = Json { explicitNulls = false }
 
@@ -79,8 +96,8 @@ object WaveformExtractor {
 
     /**
      * A waveform that depends only on the URI: shown while the real one decodes, and kept when a
-     * file cannot be decoded at all. Two detuned harmonics plus jitter, so it reads as a quiet
-     * envelope with texture rather than as flat static or a slow blob.
+     * file cannot be decoded at all. Two detuned harmonics plus smoothed jitter, so it reads as a
+     * quiet envelope with texture rather than as flat static or a slow blob.
      */
     fun synthetic(uri: String): Waveform {
         val random = Random(seedOf(uri))
@@ -88,13 +105,18 @@ object WaveformExtractor {
         val second = 4 + random.nextInt(6)
         val phaseA = random.nextFloat() * 2f * PI.toFloat()
         val phaseB = random.nextFloat() * 2f * PI.toFloat()
-        val bars = FloatArray(BARS) { index ->
-            val x = index.toFloat() / BARS
-            val envelope = 0.52f +
-                0.24f * sin(2f * PI.toFloat() * first * x + phaseA) +
-                0.16f * sin(2f * PI.toFloat() * second * x + phaseB)
-            (envelope + random.nextFloat() * 0.14f).coerceIn(0.08f, 1f)
-        }
+        val jitter = FloatArray(BARS) { random.nextFloat() }
+        val shaped = smooth(
+            FloatArray(BARS) { index ->
+                val x = index.toFloat() / BARS
+                0.52f +
+                    0.24f * sin(2f * PI.toFloat() * first * x + phaseA) +
+                    0.16f * sin(2f * PI.toFloat() * second * x + phaseB) +
+                    jitter[index] * 0.14f
+            },
+            sigma = 1.5f,
+        )
+        val bars = FloatArray(shaped.size) { shaped[it].coerceIn(0.08f, 1f) }
         // 84–138 BPM: the range a wrong guess still looks plausible in.
         return Waveform(bars, 84f + random.nextInt(55))
     }
@@ -245,7 +267,7 @@ object WaveformExtractor {
             return FloatArray(frames.size) { frames[it] }
         }
 
-        /** Half peak, half RMS, stretched from the track's 2nd to its 98th percentile. */
+        /** Half peak, half RMS, smoothed, then stretched from the track's 2nd to its 98th percentile. */
         fun profile(): FloatArray {
             val raw = FloatArray(bars) { index ->
                 val counted = bucketSamples[index].coerceAtLeast(1)
@@ -253,11 +275,12 @@ object WaveformExtractor {
                 val rms = sqrt(bucketEnergy[index] / counted).toFloat().coerceAtMost(FULL_SCALE) / FULL_SCALE
                 0.5f * peak + 0.5f * rms
             }
-            val sorted = raw.sortedArray()
+            val smoothed = smooth(raw, SMOOTH_SIGMA_BARS)
+            val sorted = smoothed.sortedArray()
             val floor = sorted[(sorted.size * 0.02).toInt().coerceAtMost(sorted.size - 1)]
             val ceiling = sorted[(sorted.size * 0.98).toInt().coerceAtMost(sorted.size - 1)]
             val span = (ceiling - floor).coerceAtLeast(0.05f)
-            return FloatArray(raw.size) { ((raw[it] - floor) / span).coerceIn(0.08f, 1f) }
+            return FloatArray(smoothed.size) { ((smoothed[it] - floor) / span).coerceIn(0.08f, 1f) }
         }
     }
 
@@ -268,6 +291,37 @@ object WaveformExtractor {
     private fun write(file: File, waveform: Waveform) = runCatching {
         file.parentFile?.mkdirs()
         file.writeText(json.encodeToString(Waveform.serializer(), waveform))
+    }
+
+    /**
+     * A Gaussian pass over [values], renormalised at the ends so the first and last bars do not
+     * sag towards nothing.
+     *
+     * It runs on the finished profile rather than on the PCM: the profile is what gets drawn, so
+     * it is what decides whether the scrubber reads as a shape or as a row of blocks. Widening the
+     * buckets instead would smooth the same way, but it would also average the track's dynamics
+     * away — this softens the outline and keeps the spread.
+     */
+    private fun smooth(values: FloatArray, sigma: Float): FloatArray {
+        val n = values.size
+        if (n < 3) return values
+        val radius = max(1, (sigma * 3f).toInt())
+        val kernel = FloatArray(radius * 2 + 1) { index ->
+            val offset = (index - radius).toFloat()
+            exp(-(offset * offset) / (2f * sigma * sigma))
+        }
+        return FloatArray(n) { index ->
+            var sum = 0.0
+            var weight = 0.0
+            for (k in kernel.indices) {
+                val source = index + k - radius
+                if (source in 0 until n) {
+                    sum += values[source] * kernel[k]
+                    weight += kernel[k]
+                }
+            }
+            (sum / weight).toFloat()
+        }
     }
 
     private fun seedOf(value: String): Long =

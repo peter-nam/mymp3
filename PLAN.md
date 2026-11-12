@@ -151,9 +151,60 @@ dependency count honest for an app this size):
 - **Recents** — artwork thumbnail, title, artist, duration, and a "Resume 12:34" subtitle; tap to
   play, swipe or long-press to remove. An "Open file…" action launches the SAF audio picker for the
   case where a file isn't shareable.
-- **Player** — large artwork, title/artist, `Slider` scrubber with elapsed/total, and the control
-  row: `−10s` · `play/pause` · `+30s`. Material 3 with dynamic color on Android 12+ (One UI's
-  Material You palette), light + dark themes.
+- **Player** — bottom-anchored: artwork (rendered only when the file actually carries any, so an
+  untagged mp3 gets text instead of a grey box), title/artist, the waveform scrubber,
+  elapsed/total, then the transport row: standard `⏮` · `play/pause` · `⏭` glyphs. Dark-only,
+  themed from the app icon's own palette (amber on plum) rather than Material You — One UI's
+  dynamic colour would otherwise repaint the app from the wallpaper. The notification keeps the
+  explicit `-10s` / `+30s` labels.
+
+#### The waveform scrubber
+
+The progress bar *is* the track's waveform, so it shows where the quiet and loud parts are as well
+as where the playhead is.
+
+| | |
+| --- | --- |
+| Resolution | 240 bars across the track |
+| Measured per bar | half peak, half RMS |
+| Normalised to | the track's own 2nd–98th percentile, not its loudest sample |
+| Smoothed with | a Gaussian, σ = 2 bars |
+| Outline | a Catmull-Rom curve, mirrored — not a row of rectangles |
+| Tempo | estimated from the same decode; Android exposes no BPM tag to read |
+| Cached | one JSON document, `cache/waveform/v4-<md5(uri)>.json` |
+
+Every one of those rows came from measuring a real file (`test/YuE2_cover_00012.mp3`) rather than
+from taste:
+
+- **Half peak, half RMS.** The usual shortcut — the loudest sample in the window — reports
+  transients and hides level changes, so a master limited near 0 dBFS renders as one tall
+  rectangle. Blending in RMS measures 1.8× more variation on the same audio (stdev 0.162 vs 0.105).
+- **Percentile stretch.** Dividing by the single loudest sample lets one snare hit flatten every
+  other bar. Stretching across the track's own 2nd–98th percentile instead took the reference
+  file's stdev from 0.105 to 0.195.
+- **σ = 2 smoothing.** A bar covers 0.68 s of audio, so neighbouring bars measure genuinely
+  different moments and the raw profile steps between them — 0.124 per step, which reads as a row
+  of blocks. Smoothing the *finished profile* rather than widening the buckets drops the step to
+  0.028 (4.4× smoother) while leaving the spread untouched (stdev 0.204): the outline becomes a
+  curve and the dynamics survive.
+- **One decode, two products.** `WaveformExtractor` folds the PCM into the bar profile and the
+  loudness envelope in the same pass, so measuring the tempo costs nothing extra.
+- **Tempo.** `TempoEstimator` removes the envelope's DC offset, autocorrelates it, and scores
+  candidate tempos across 4 harmonics (Ellis 2007's tempoogram in a few lines). Harmonic scoring is
+  what stops a 120 BPM track being reported as 60 — a plain autocorrelation peaks at the true
+  period *and* at every multiple of it, and the longest lag often wins. Verified three ways by
+  `test/verify_bpm.py`: the app cached **130.38** BPM for the reference file, a Python replica of
+  the same code returned **130.38**, and an independent detector (different frame size,
+  autocorrelation of rectified onsets rather than level) returned **129.20**.
+
+**Motion.** One clock drives everything that moves: the waveform swells 6% on every beat (14% of
+the beat period on the attack, the rest on the release) and the play button swells with it, both
+from the same estimated beat period. A colour mask — violet, sky, mint, the brand amber, rose —
+slides along the waveform on a 7 s cycle with a crest of light travelling through it and a gradient
+axis that swings; the same mask paints the play button and its glow. The clock is handed down as
+`State` objects rather than read by the screen itself, so only the two animated elements recompose
+60 times a second, not the whole layout. The pulse stops when playback pauses; the colour keeps
+flowing.
 
 ## 4. Project layout
 
@@ -177,12 +228,18 @@ mymp3/
 │           ├── data/
 │           │   ├── RecentTracksStore.kt
 │           │   ├── Track.kt
-│           │   └── AudioMetadataReader.kt
-│           └── ui/
-│               ├── AppRoot.kt
-│               ├── player/PlayerScreen.kt
-│               ├── recent/RecentScreen.kt
-│               └── theme/{Color,Type,Theme}.kt
+│           │   ├── AudioMetadataReader.kt
+│           │   ├── WaveformExtractor.kt      # one decode → the waveform *and* the tempo, cached as JSON
+│           │   └── TempoEstimator.kt         # BPM from a loudness envelope, 60–180, harmonic scoring
+│           ├── ui/
+│           │   ├── AppRoot.kt
+│           │   ├── player/PlayerScreen.kt
+│           │   ├── recent/RecentScreen.kt
+│           │   ├── common/RememberImageBitmap.kt
+│           │   ├── common/RememberWaveform.kt
+│           │   └── theme/{Color,Type,Theme}.kt
+│           └── util/TimeFormat.kt
+├── test/                             # reference track + verify_bpm.py (see §3.6 and §7)
 ├── build.gradle.kts
 ├── settings.gradle.kts
 ├── gradle.properties
@@ -257,6 +314,9 @@ Each phase ends in something verifiable.
 - **Earbuds:** connect buds, then exercise play/pause, next (+30s), previous (−10s) and volume.
 - **Open/share:** from Samsung Files, share an mp3 → MyMP3; and open an mp3 from another app.
 - **Resume:** play 30s, stop, reopen the same file → starts at ~0:30.
+- **Waveform and tempo:** `python3 test/verify_bpm.py <decoded.wav> <v4-cache.json>` re-derives the
+  profile and the tempo from the file itself and compares them against what the app cached, then
+  cross-checks the tempo with a second, independent detector. See §3.6 for what it proved.
 
 ## 8. Later ideas (not v1)
 

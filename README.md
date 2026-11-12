@@ -25,6 +25,23 @@ Android only. See [PLAN.md](PLAN.md) for the design and the reasoning behind it.
 - **Rich notification and lock-screen card** with ID3 artwork, title and artist.
 - **Recent files list** that remembers where each file stopped, so reopening one resumes it.
 
+## The player screen
+
+The progress bar is the track's own waveform — drawn as a smooth mirrored curve, filled with a
+colour mask that flows through violet, sky, mint, the brand amber and rose. It swells on every
+beat, and the play button beats with it: the app works the song's tempo out when it decodes the
+file, because Android doesn't store one.
+
+| | |
+| --- | --- |
+| Waveform | 240 bars, half peak + half RMS, smoothed — from a single decode of the file |
+| Tempo | estimated, not guessed: 130.38 BPM on the bundled test track, confirmed two other ways |
+| Caching | one JSON file per track in `cache/waveform/`, so a track is decoded once, ever |
+
+Both numbers are measured rather than eyeballed — `python3 test/verify_bpm.py` re-derives the shape
+and the tempo from the audio and compares them against what the app produced. The reasoning is in
+[PLAN.md §3.6](PLAN.md#36-ui).
+
 ## Requirements
 
 | | |
@@ -78,13 +95,17 @@ app/src/main/java/com/pnam/mymp3/
 ├── data/
 │   ├── Track.kt               # a file the user opened, + where it stopped
 │   ├── RecentTracksStore.kt   # DataStore-backed recents list
-│   └── AudioMetadataReader.kt # ID3 tags + embedded artwork
+│   ├── AudioMetadataReader.kt # ID3 tags + embedded artwork
+│   ├── WaveformExtractor.kt   # one decode → the waveform and the tempo, cached as JSON
+│   └── TempoEstimator.kt      # the BPM estimate the whole screen animates to
+├── util/TimeFormat.kt         # 0:37 / 2:44 formatting
 └── ui/
     ├── AppRoot.kt             # switches between the two screens
-    ├── player/PlayerScreen.kt
+    ├── player/PlayerScreen.kt # the waveform scrubber and the transport row
     ├── recent/RecentScreen.kt
     ├── common/RememberImageBitmap.kt
-    └── theme/                 # Material 3, Material You on Android 12+
+    ├── common/RememberWaveform.kt
+    └── theme/                 # Material 3, dark-only, from the app icon's palette
 ```
 
 The important rule in this codebase: **the UI never touches `ExoPlayer`.** It renders

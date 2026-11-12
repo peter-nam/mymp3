@@ -2,10 +2,14 @@
 <resources>
     <string name="app_name">MyMP3</string>
     <string name="open_in_mymp3">Play in MyMP3</string>
+    <string name="notification_channel_name">Playback</string>
 
     <!-- Player -->
     <string name="play">Play</string>
     <string name="pause">Pause</string>
+    <string name="stop">Stop</string>
+    <string name="now_playing">Now playing</string>
+    <string name="paused">Paused</string>
     <string name="skip_forward_30">Skip forward 30 seconds</string>
     <string name="skip_back_10">Rewind 10 seconds</string>
     <string name="label_back_10">-10s</string>
@@ -24,7 +28,6 @@
     <string name="resume_at">Resume %1$s</string>
 
     <!-- Errors -->
-    <string name="error_file_unavailable">This file is no longer available. Re-share or re-open it.</string>
     <string name="error_playback">Playback error: %1$s</string>
     <string name="dismiss">Dismiss</string>
 </resources>

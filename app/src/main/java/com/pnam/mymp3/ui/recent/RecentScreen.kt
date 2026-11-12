@@ -7,7 +7,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -45,7 +45,7 @@ import com.pnam.mymp3.ui.common.rememberImageBitmap
 import com.pnam.mymp3.util.formatClockTime
 
 /**
- * Everything the user has opened before, newest first.
+ * Everything the user has opened before, newest first, with a now-playing bar pinned below.
  *
  * Also the only in-app way to reach audio that was never shared to the app: "Open file" runs the
  * Storage Access Framework picker and persists the read permission it is granted.
@@ -55,8 +55,11 @@ import com.pnam.mymp3.util.formatClockTime
 fun RecentScreen(
     recents: List<Track>,
     currentUri: String?,
+    isPlaying: Boolean,
     errorMessage: String?,
     onPlay: (Uri) -> Unit,
+    onPlayPause: () -> Unit,
+    onOpenPlayer: () -> Unit,
     onRemove: (Uri) -> Unit,
     onDismissError: () -> Unit,
 ) {
@@ -84,6 +87,8 @@ fun RecentScreen(
             )
         },
     ) { padding ->
+        val currentTrack = recents.firstOrNull { it.uri == currentUri }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -109,9 +114,9 @@ fun RecentScreen(
             }
 
             if (recents.isEmpty()) {
-                EmptyLibrary()
+                EmptyLibrary(modifier = Modifier.weight(1f))
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(modifier = Modifier.weight(1f)) {
                     items(recents, key = { it.uri }) { track ->
                         TrackRow(
                             track = track,
@@ -122,13 +127,24 @@ fun RecentScreen(
                     }
                 }
             }
+
+            // The way back to the Player screen. Without this, pressing back from the player left
+            // the playing track unreachable — tapping its row would have restarted it.
+            currentTrack?.let { track ->
+                NowPlayingBar(
+                    track = track,
+                    isPlaying = isPlaying,
+                    onOpen = onOpenPlayer,
+                    onPlayPause = onPlayPause,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun EmptyLibrary() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+private fun EmptyLibrary(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(32.dp),
@@ -150,6 +166,52 @@ private fun EmptyLibrary() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingBar(
+    track: Track,
+    isPlaying: Boolean,
+    onOpen: () -> Unit,
+    onPlayPause: () -> Unit,
+) {
+    Surface(
+        onClick = onOpen,
+        tonalElevation = 3.dp,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ArtworkThumbnail(track.artworkPath)
+
+            Spacer(Modifier.size(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(if (isPlaying) R.string.now_playing else R.string.paused),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+
+            IconButton(onClick = onPlayPause) {
+                Icon(
+                    painter = painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
+                    contentDescription = stringResource(if (isPlaying) R.string.pause else R.string.play),
+                )
+            }
         }
     }
 }

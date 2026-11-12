@@ -1,16 +1,21 @@
 package com.pnam.mymp3.player
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.annotation.OptIn
+import androidx.core.app.NotificationManagerCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.pnam.mymp3.MainActivity
+import com.pnam.mymp3.R
 
 /**
  * The single owner of playback.
@@ -29,6 +34,33 @@ class AudioService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
+        // 1. Channel + provider, set before anything can ask for a notification.
+        //    MediaSessionService caches its MediaNotificationManager on first use and keeps the
+        //    provider that manager was built with, and DefaultMediaNotificationProvider's own channel
+        //    is IMPORTANCE_MIN — which One UI files under "Silent" and hides. Claiming that id
+        //    ourselves at IMPORTANCE_DEFAULT makes the notification show whichever provider ends up in
+        //    charge; see NOTIFICATION_CHANNEL_ID.
+        NotificationManagerCompat.from(this).createNotificationChannel(
+            NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ),
+        )
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this)
+                .setChannelId(NOTIFICATION_CHANNEL_ID)
+                .setChannelName(R.string.notification_channel_name)
+                .build()
+                .apply { setSmallIcon(R.drawable.ic_notification) },
+        )
+
+        // 2. Keep a notification even while the player is idle. Media3's default only shows one
+        //    after a stop or an error, and a foreground service with no notification to post is
+        //    exactly what triggers the "did not then call Service.startForeground()" ANR.
+        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_ALWAYS)
+
+        // 3. The one player and the one session that every control surface drives.
         val exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -42,6 +74,7 @@ class AudioService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
+        val buttons = MediaNotificationFactory.commandButtons(this, isPlaying = false)
         val mediaSession = MediaSession.Builder(this, exoPlayer)
             .setCallback(SessionCallback(exoPlayer))
             .setSessionActivity(
@@ -52,8 +85,8 @@ class AudioService : MediaSessionService() {
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 ),
             )
-            .setCustomLayout(MediaNotificationFactory.commandButtons(this, isPlaying = false))
-            .setMediaButtonPreferences(MediaNotificationFactory.commandButtons(this, isPlaying = false))
+            .setCustomLayout(buttons)
+            .setMediaButtonPreferences(buttons)
             .build()
 
         player = exoPlayer
@@ -98,5 +131,20 @@ class AudioService : MediaSessionService() {
 
     private companion object {
         const val SESSION_ACTIVITY_REQUEST_CODE = 1001
+
+        /**
+         * Media3's own channel id, claimed by this app instead of left to the library.
+         *
+         * MediaSessionService caches its notification manager the first time it is asked for one and
+         * keeps the provider that manager was built with, so a later setMediaNotificationProvider()
+         * can be ignored and the notification still lands on DefaultMediaNotificationProvider's own
+         * channel — IMPORTANCE_MIN, which One UI files under "Silent" and hides. Declaring that same
+         * id ourselves at IMPORTANCE_DEFAULT makes the notification visible whichever provider wins.
+         *
+         * Android fixes a channel's importance when it is first created and never lets an app raise
+         * it afterwards, so an install that already has the MIN version needs its data cleared (or a
+         * reinstall) to pick this up.
+         */
+        val NOTIFICATION_CHANNEL_ID: String = DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID
     }
 }

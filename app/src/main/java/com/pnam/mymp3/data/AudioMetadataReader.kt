@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -24,8 +25,7 @@ data class AudioMetadata(
  *
  * The framework [MediaMetadataRetriever] is deprecated on API 35+ but remains the one API that
  * covers every container ExoPlayer can play, so it stays for now. Missing tags are not fatal —
- * we fall back to the file name so the track still appears in the list. A file we cannot open at
- * all returns null, which is how the UI detects an expired content-URI grant.
+ * we fall back to the file name so the track still appears in the list and keeps playing.
  */
 @Suppress("DEPRECATION")
 object AudioMetadataReader {
@@ -33,14 +33,14 @@ object AudioMetadataReader {
     private const val ARTWORK_DIR = "artwork"
     private const val ARTWORK_MAX_PX = 480
 
-    fun read(context: Context, uri: Uri): AudioMetadata? {
+    fun read(context: Context, uri: Uri): AudioMetadata {
         val appContext = context.applicationContext
         val fallbackTitle = displayName(appContext, uri)
 
         return runCatching {
             val retriever = MediaMetadataRetriever()
             try {
-                retriever.setDataSource(appContext, uri)
+                retriever.setDataSourceCompat(appContext, uri)
                 AudioMetadata(
                     title = retriever.stringOrNull(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: fallbackTitle,
                     artist = retriever.stringOrNull(MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty(),
@@ -54,17 +54,25 @@ object AudioMetadataReader {
                 runCatching { retriever.release() }
             }
         }.getOrElse { error ->
-            val goneLocally = uri.scheme == "file" && !File(uri.path.orEmpty()).exists()
-            when {
-                goneLocally -> null
-                else -> AudioMetadata(fallbackTitle, "", "", 0L, null).also {
-                    android.util.Log.w(TAG_READ, "Falling back to file name for $uri", error)
-                }
-            }
+            // Tags are decoration. ExoPlayer opens the file its own way and raises a real error if
+            // the file itself is unusable, so unreadable tags must never stop playback — the old
+            // nullable contract did exactly that and the app looked dead on files that played fine.
+            Log.w(TAG_READ, "Falling back to file name for $uri", error)
+            AudioMetadata(fallbackTitle, "", "", 0L, null)
         }
     }
 
     private const val TAG_READ = "AudioMetadataReader"
+
+    /**
+     * setDataSource(Context, Uri) resolves content: grants; for a file: URI the framework wants the
+     * plain path (passing the URI string back to it, or a path it will not open through
+     * ContentResolver, fails with FileNotFoundException even though the file plays).
+     */
+    private fun MediaMetadataRetriever.setDataSourceCompat(context: Context, uri: Uri) {
+        val filePath = uri.takeIf { it.scheme == "file" }?.path
+        if (filePath != null) setDataSource(filePath) else setDataSource(context, uri)
+    }
 
     private fun MediaMetadataRetriever.stringOrNull(key: Int): String? =
         runCatching { extractMetadata(key) }.getOrNull()?.takeIf { it.isNotBlank() }

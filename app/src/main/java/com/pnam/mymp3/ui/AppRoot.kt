@@ -47,6 +47,7 @@ fun AppRoot() {
             PlayerScreen(
                 state = playback,
                 onBack = { showPlayer = false },
+                onStop = app.players::stop,
                 onPlayPause = app.players::playPause,
                 onSeek = app.players::seekTo,
                 onSkipForward = app.players::skipForward,
@@ -57,8 +58,11 @@ fun AppRoot() {
             RecentScreen(
                 recents = recents,
                 currentUri = playback.currentTrack?.uri,
+                isPlaying = playback.isPlaying,
                 errorMessage = playback.errorMessage,
                 onPlay = { uri -> app.players.play(uri) },
+                onPlayPause = app.players::playPause,
+                onOpenPlayer = { showPlayer = true },
                 onRemove = { uri -> scope.launch { app.recentTracks.remove(uri.toString()) } },
                 onDismissError = app.players::dismissError,
             )

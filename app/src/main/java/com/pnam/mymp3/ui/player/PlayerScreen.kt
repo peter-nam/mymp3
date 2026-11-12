@@ -50,6 +50,7 @@ import com.pnam.mymp3.util.formatClockTime
 fun PlayerScreen(
     state: PlaybackUiState,
     onBack: () -> Unit,
+    onStop: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
     onSkipForward: () -> Unit,
@@ -73,6 +74,14 @@ fun PlayerScreen(
                         Icon(
                             painter = painterResource(R.drawable.ic_arrow_back),
                             contentDescription = stringResource(R.string.back),
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onStop) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_stop),
+                            contentDescription = stringResource(R.string.stop),
                         )
                     }
                 },

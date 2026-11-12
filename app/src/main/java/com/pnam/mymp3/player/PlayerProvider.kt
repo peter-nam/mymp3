@@ -65,11 +65,6 @@ class PlayerProvider(
         if (controller != null || connectInFlight) return
         connectInFlight = true
 
-        // Start the service before binding so it survives the Activity being destroyed.
-        runCatching {
-            ContextCompat.startForegroundService(appContext, Intent(appContext, AudioService::class.java))
-        }
-
         val token = SessionToken(appContext, ComponentName(appContext, AudioService::class.java))
         val future: ListenableFuture<MediaController> =
             MediaController.Builder(appContext, token)
@@ -87,14 +82,19 @@ class PlayerProvider(
             return
         }
 
-        scope.launch {
-            val metadata = withContext(Dispatchers.IO) { AudioMetadataReader.read(appContext, uri) }
-            if (metadata == null) {
-                _state.update { it.copy(errorMessage = appContext.getString(R.string.error_file_unavailable)) }
-                return@launch
-            }
+        // Only now — with something to play — does the service go into the foreground. Starting it
+        // as a foreground service while the player is idle leaves Media3 with no notification to
+        // post, and Android ANRs the app 5s later with "did not then call Service.startForeground()".
+        runCatching {
+            ContextCompat.startForegroundService(appContext, Intent(appContext, AudioService::class.java))
+        }
 
+        scope.launch {
+            // Tags are decoration, and read() always answers; a genuinely unreadable file is
+            // reported by ExoPlayer through onPlayerError rather than by playback silently
+            // not starting.
             val existing = recentTracks.find(uri.toString())
+            val metadata = withContext(Dispatchers.IO) { AudioMetadataReader.read(appContext, uri) }
             val track = Track(
                 uri = uri.toString(),
                 title = metadata.title,
